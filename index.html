@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polyphonic Piano Tracker</title>
+  <style>
+    /* =========================================
+       Dark Theme & Layout Styles
+       ========================================= */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #121212;
+      color: #e0e0e0;
+      margin: 0;
+      padding: 30px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    h1 { margin-top: 0; color: #fff; text-align: center; }
+
+    #setup-guide {
+      background-color: #2a2a2a;
+      border: 2px solid #ef4444;
+      border-radius: 8px;
+      padding: 20px;
+      max-width: 600px;
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    #setup-guide a { color: #64b5f6; }
+
+    #app-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      max-width: 600px;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      background-color: #3b82f6;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.2s, opacity 0.2s;
+    }
+
+    button:hover:not(:disabled) { background-color: #2563eb; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; background-color: #4b5563; }
+    #stop-btn { background-color: #ef4444; }
+    #stop-btn:hover:not(:disabled) { background-color: #dc2626; }
+
+    #model-url {
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px solid #4b5563;
+      background-color: #1e1e1e;
+      color: #fff;
+      font-size: 16px;
+      width: 100%;
+      box-sizing: border-box;
+      margin-bottom: 15px;
+    }
+    #model-url:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+
+    #status {
+      font-size: 18px;
+      font-weight: bold;
+      color: #fbbf24;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+
+    /* Polyphonic Display Area */
+    #display-area {
+      background-color: #1e1e1e;
+      border: 2px solid #333;
+      border-radius: 12px;
+      width: 100%;
+      min-height: 350px;
+      padding: 40px 20px;
+      text-align: center;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    #notes-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      justify-content: center;
+      align-items: center;
+      align-content: flex-start;
+      width: 100%;
+      min-height: 130px;
+    }
+
+    .note-badge {
+      background-color: #4ade80;
+      color: #000;
+      font-size: 40px;
+      font-weight: bold;
+      padding: 15px 25px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+
+    .silence-badge {
+      background-color: #333;
+      color: #888;
+      font-size: 30px;
+      padding: 15px 25px;
+      border-radius: 12px;
+    }
+
+    .count-badge {
+      background-color: #3b82f6;
+      color: #fff;
+      font-size: 20px;
+      font-weight: bold;
+      padding: 10px 20px;
+      border-radius: 8px;
+      margin-top: 15px;
+      width: 100%;
+    }
+
+    @keyframes popIn {
+      0% { transform: scale(0.8); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    #log-output {
+      width: 100%;
+      height: 200px;
+      background-color: #000;
+      color: #4ade80;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      padding: 10px;
+      border-radius: 6px;
+      overflow-y: auto;
+      border: 1px solid #333;
+      font-size: 13px;
+      box-sizing: border-box;
+      text-align: left;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.3; }
+      100% { opacity: 1; }
+    }
+
+    .listening-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      background-color: #ef4444;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Polyphonic Piano Tracker</h1>
+
+  <!-- Offline Setup Guide -->
+  <div id="setup-guide">
+    <h2 style="color: #ef4444; margin-top: 0;">⚠️ Model Missing / CORS Error</h2>
+    <p>Ensure that your <code>.onnx</code> file URL is correct and that the hosting server allows Cross-Origin Resource Sharing (CORS).</p>
+  </div>
+
+  <div id="app-content">
+    <div id="status">Waiting for user action...</div>
+    
+    <div id="info-blurb" style="margin-bottom: 15px; text-align: center; color: #aaa; font-size: 14px; max-width: 600px;">
+      <strong>Model Requirements:</strong> Expects <code>2048</code> audio samples at <code>20480 Hz</code>. Outputs <code>88+k</code> logits. 
+      (k=1: silence vs keys; k>1: exact number of simultaneous keys). <br>
+      <em>Need a place to host your .onnx file? Try <a href="https://litter.catbox.moe/" target="_blank" style="color: #64b5f6;">litter.catbox.moe</a> for temporary hosting without CORS issues.</em>
+    </div>
+
+    <div style="width: 100%; max-width: 400px;">
+      <input type="text" id="model-url" placeholder="Enter .onnx URL (e.g., https://.../model.onnx)" value="" />
+    </div>
+
+    <div class="controls">
+      <button id="load-btn">1. Load ONNX Model</button>
+      <button id="start-btn" disabled>2. Start Microphone</button>
+      <button id="stop-btn" disabled>Stop</button>
+    </div>
+
+    <!-- Pitch Visualization Area -->
+    <div id="display-area">
+      <div id="notes-container">
+        <div class="silence-badge">Model Not Running</div>
+      </div>
+      <canvas id="prob-visualizer" width="600" height="120" style="width: 100%; background: #121212; margin-top: 25px; border-radius: 6px; border: 1px solid #333;"></canvas>
+    </div>
+
+    <!-- Debugging Console -->
+    <div id="log-output"></div>
+  </div>
+
+  <!-- Use the CDN instead of local files to prevent WASM 404/MIME type errors -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.23.0/ort.wasm.min.js"></script>
+  
+  <script>
+    let session = null;
+    let audioCtx = null;
+    let mediaStream = null;
+    let workletNode = null;
+    let isRunning = false;
+    let isInferencing = false;
+    let frameCount = 0;
+
+    const modelUrlInput = document.getElementById('model-url');
+    const loadBtn = document.getElementById('load-btn');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const statusEl = document.getElementById('status');
+    const notesContainer = document.getElementById('notes-container');
+    const canvas = document.getElementById('prob-visualizer');
+    const ctx = canvas.getContext('2d');
+
+    function logToPage(msg, isError = false) {
+      const logDiv = document.getElementById('log-output');
+      const entry = document.createElement('div');
+      entry.innerText = `> ${msg}`;
+      if (isError) entry.style.color = '#ef4444';
+      logDiv.appendChild(entry);
+      logDiv.scrollTop = logDiv.scrollHeight;
+      if (isError) console.error(msg); else console.log(msg);
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      if (typeof ort === 'undefined') {
+        document.getElementById('setup-guide').style.display = 'block';
+        document.getElementById('app-content').style.display = 'none';
+        logToPage("Error: ONNX Runtime Web is missing.", true);
+      } else {
+        logToPage("ONNX Runtime Web ready.");
+      }
+    });
+
+    /* =========================================================================
+       Music Math Logic (Mapping Class Index 0-87 to MIDI Notes)
+       A0 = MIDI 21 (Index 0 in the model)
+       ========================================================================= */
+    function classIndexToNoteString(idx) {
+      const midi = idx + 21;
+      const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+      const noteName = notes[midi % 12];
+      const octave = Math.floor(midi / 12) - 1;
+      return `${noteName}${octave}`;
+    }
+
+    /* =========================================
+       UI Updator for Polyphony
+       ========================================= */
+    function updateUI(activeNotes, isSilence, predictedCount = null) {
+      notesContainer.innerHTML = ''; // Clear previous
+
+      if (isSilence && activeNotes.length === 0) {
+        const badge = document.createElement('div');
+        badge.className = 'silence-badge';
+        badge.innerText = "Silence";
+        notesContainer.appendChild(badge);
+      } else {
+        activeNotes.forEach(note => {
+          const badge = document.createElement('div');
+          badge.className = 'note-badge';
+          badge.innerText = note;
+          notesContainer.appendChild(badge);
+        });
+      }
+
+      if (predictedCount !== null) {
+        const countBadge = document.createElement('div');
+        countBadge.className = 'count-badge';
+        countBadge.innerText = `Network estimates exactly ${predictedCount} key(s) played`;
+        notesContainer.appendChild(countBadge);
+      }
+    }
+
+    function drawVisualizer(probs, k) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      const padding = 10;
+      const usableWidth = canvas.width - padding * 2;
+      const barWidth = usableWidth / probs.length;
+
+      for (let i = 0; i < probs.length; i++) {
+        const prob = probs[i];
+        const barHeight = prob * (canvas.height - 20); // 20px padding top
+        
+        // Color mapping: 0-87 keys (green), 88+k counts (blue)
+        ctx.fillStyle = i < 88 
+          ? `rgba(74, 222, 128, ${Math.max(0.1, prob)})` 
+          : `rgba(59, 130, 246, ${Math.max(0.1, prob)})`;
+        
+        ctx.fillRect(
+          padding + i * barWidth, 
+          canvas.height - barHeight, 
+          barWidth - 1, 
+          barHeight
+        );
+      }
+    }
+
+    /* =========================================================================
+       Step 1: Load ONNX Model
+       ========================================================================= */
+    loadBtn.addEventListener('click', async () => {
+      const modelUrl = modelUrlInput.value.trim();
+      if (!modelUrl) {
+        logToPage("Error: Please enter a model URL.", true);
+        return;
+      }
+
+      loadBtn.disabled = true;
+      modelUrlInput.disabled = true;
+      statusEl.innerText = `Loading ${modelUrl}...`;
+      statusEl.style.color = "#fbbf24";
+      
+      try {
+        // Fetch the required .wasm files straight from the CDN to avoid 404s
+        ort.env.wasm.wasmPaths = 'https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.23.0/';
+        ort.env.wasm.numThreads = 1; 
+        
+        const sessionOptions = {
+          executionProviders: ['wasm'],
+          intraOpNumThreads: 1,
+          interOpNumThreads: 1
+        };
+        
+        session = await ort.InferenceSession.create(modelUrl, sessionOptions);
+        
+        logToPage(`Model loaded successfully from ${modelUrl}!`);
+        logToPage(`Expected Input: ${session.inputNames}`);
+        
+        statusEl.innerText = "Model loaded. Ready to start microphone.";
+        statusEl.style.color = "#4ade80";
+        startBtn.disabled = false;
+      } catch (err) {
+        logToPage(`Failed to load ${modelUrl}: ${err.message}`, true);
+        statusEl.innerText = "Error loading model.";
+        statusEl.style.color = "#ef4444";
+        loadBtn.disabled = false;
+        modelUrlInput.disabled = false;
+        document.getElementById('setup-guide').style.display = 'block';
+      }
+    });
+
+    /* =========================================================================
+       Step 2: Start Microphone & Audio Pipeline (Resampling to 20480 Hz)
+       ========================================================================= */
+    startBtn.addEventListener('click', async () => {
+      if (isRunning || !session) return;
+      
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false }
+        });
+        
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        logToPage(`Hardware Sample Rate: ${audioCtx.sampleRate} Hz.`);
+        
+        const workletCode = `
+          class PitchProcessor extends AudioWorkletProcessor {
+            constructor(options) {
+              super();
+              this.inRate = options.processorOptions.sampleRate;
+              this.outRate = 20480; // Custom Polyphonic Model Target Rate
+              this.ratio = this.inRate / this.outRate;
+              
+              this.a = 3; 
+              this.support = this.a * this.ratio; 
+              
+              this.inBuffer = new Float32Array(8192); 
+              this.inLen = 0;
+              this.readPos = this.support; 
+              
+              this.outBufferSize = 2048; // Exactly 100ms
+              this.outBuffer = new Float32Array(this.outBufferSize);
+              this.outLen = 0;
+            }
+            
+            sinc(x) {
+              if (x === 0) return 1.0;
+              const piX = Math.PI * x;
+              return Math.sin(piX) / piX;
+            }
+            
+            lanczos(x) {
+              if (Math.abs(x) >= this.a) return 0.0;
+              return this.sinc(x) * this.sinc(x / this.a);
+            }
+            
+            process(inputs, outputs, parameters) {
+              const input = inputs[0];
+              if (!input || input.length === 0) return true;
+              const channelData = input[0];
+              
+              if (this.inLen + channelData.length > this.inBuffer.length) {
+                this.inLen = 0;
+                this.readPos = this.support;
+              }
+              this.inBuffer.set(channelData, this.inLen);
+              this.inLen += channelData.length;
+              
+              while (this.readPos + this.support < this.inLen) {
+                let sum = 0;
+                let weightSum = 0;
+                const start = Math.floor(this.readPos - this.support) + 1;
+                const end = Math.floor(this.readPos + this.support);
+                
+                for (let i = start; i <= end; i++) {
+                  const weight = this.lanczos((i - this.readPos) / this.ratio);
+                  sum += this.inBuffer[i] * weight;
+                  weightSum += weight;
+                }
+                
+                this.outBuffer[this.outLen++] = weightSum === 0 ? 0 : sum / weightSum;
+                this.readPos += this.ratio;
+                
+                if (this.outLen >= this.outBufferSize) {
+                  this.port.postMessage(new Float32Array(this.outBuffer));
+                  this.outLen = 0;
+                }
+              }
+              
+              const keepStart = Math.floor(this.readPos - this.support);
+              if (keepStart > 0) {
+                const keepCount = this.inLen - keepStart;
+                this.inBuffer.copyWithin(0, keepStart, this.inLen);
+                this.inLen = keepCount;
+                this.readPos -= keepStart;
+              }
+              return true;
+            }
+          }
+          registerProcessor('pitch-processor', PitchProcessor);
+        `;
+        
+        const blob = new Blob([workletCode], { type: 'application/javascript' });
+        const workletUrl = URL.createObjectURL(blob);
+        
+        await audioCtx.audioWorklet.addModule(workletUrl);
+        const sourceNode = audioCtx.createMediaStreamSource(mediaStream);
+        
+        workletNode = new AudioWorkletNode(audioCtx, 'pitch-processor', {
+          processorOptions: { sampleRate: audioCtx.sampleRate }
+        });
+        
+        workletNode.port.onmessage = (event) => {
+          runInference(event.data);
+        };
+        
+        sourceNode.connect(workletNode);
+        
+        isRunning = true;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        
+        statusEl.innerHTML = '<span class="listening-indicator"></span> Resampling to 20480 Hz & Identifying Chords...';
+        statusEl.style.color = "#ef4444";
+        
+      } catch (err) {
+        logToPage(`Error setting up audio: ${err.message}`, true);
+        statusEl.innerText = "Error accessing microphone.";
+        statusEl.style.color = "#ef4444";
+      }
+    });
+
+    /* =========================================================================
+       Step 3: Run Model Inference
+       ========================================================================= */
+    async function runInference(audioBuffer) {
+      if (!session || isInferencing) return;
+      isInferencing = true;
+      
+      try {
+        // Prepare Float32 Tensor: [1 (batch), 2048 (samples)]
+        const tensor = new ort.Tensor('float32', audioBuffer, [1, audioBuffer.length]);
+        const feeds = {};
+        feeds[session.inputNames[0]] = tensor;
+        
+        // Run neural network
+        const results = await session.run(feeds);
+        
+        // Output shape is dynamically [1, 88 + k] for logits
+        const logits = results[session.outputNames[0]].data;
+        const totalOutputs = logits.length;
+        const k = totalOutputs - 88;
+        
+        // Convert raw logits to probabilities (0.0 to 1.0) using Sigmoid
+        const probs = new Float32Array(totalOutputs);
+        for (let i = 0; i < totalOutputs; i++) {
+          probs[i] = 1.0 / (1.0 + Math.exp(-logits[i]));
+        }
+        
+        let activeNotes = [];
+        let isSilence = false;
+        let predictedCount = null;
+        
+        if (k === 1) {
+          // k=1 style: Threshold all 88 keys independently at logit > 0
+          for (let i = 0; i < 88; i++) {
+            if (logits[i] > 0.0) { // logit > 0 means > 50% probability after Sigmoid
+              activeNotes.push(classIndexToNoteString(i));
+            }
+          }
+          // Class 88 is the silence/no-key class
+          isSilence = (logits[88] > 0.0 && activeNotes.length === 0);
+        } else if (k > 1) {
+          // k>1 style: Find argmax of the last k outputs to estimate EXACT key count
+          let maxLogit = -Infinity;
+          let bestCount = 0;
+          for (let i = 0; i < k; i++) {
+            if (logits[88 + i] > maxLogit) {
+              maxLogit = logits[88 + i];
+              bestCount = i;
+            }
+          }
+          
+          predictedCount = bestCount;
+          isSilence = (bestCount === 0);
+          
+          if (bestCount > 0) {
+            // Pair indices with their logit scores
+            let keyScores = [];
+            for (let i = 0; i < 88; i++) {
+              keyScores.push({ index: i, score: logits[i] });
+            }
+            
+            // Sort descending by score to get the strongest predictions
+            keyScores.sort((a, b) => b.score - a.score);
+            
+            // Select the top 'bestCount' pitches
+            let selectedIndices = [];
+            for (let i = 0; i < bestCount; i++) {
+              selectedIndices.push(keyScores[i].index);
+            }
+            
+            // Sort the selected indices ascending so the chord reads low-to-high pitch
+            selectedIndices.sort((a, b) => a - b);
+            activeNotes = selectedIndices.map(idx => classIndexToNoteString(idx));
+          }
+        }
+        
+        frameCount++;
+        if (frameCount % 10 === 0) {
+           logToPage(`[Frame ${frameCount}] Detected: ${activeNotes.length > 0 ? activeNotes.join(', ') : 'Silence'} | k=${k}`);
+        }
+        
+        // Draw the visualization and update notes
+        drawVisualizer(probs, k);
+        updateUI(activeNotes, isSilence, k > 1 ? predictedCount : null);
+
+      } catch (err) {
+        logToPage(`Inference Error: ${err.message}`, true);
+      } finally {
+        isInferencing = false;
+      }
+    }
+
+    /* =========================================
+       Step 4: Stop & Cleanup
+       ========================================= */
+    stopBtn.addEventListener('click', () => {
+      if (!isRunning) return;
+      logToPage("Stopping audio pipeline...");
+      
+      if (workletNode) { workletNode.disconnect(); workletNode = null; }
+      if (audioCtx) { audioCtx.close(); audioCtx = null; }
+      if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+      
+      isRunning = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      statusEl.innerText = "Stopped.";
+      statusEl.style.color = "#fbbf24";
+      
+      updateUI([], true);
+    });
+  </script>
+</body>
+</html>
